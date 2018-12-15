@@ -7,6 +7,7 @@ use Drupal\Core\Config\ConfigFactoryInterface;
 use Drupal\Core\Entity\EntityInterface;
 use Drupal\Core\Entity\EntityStorageException;
 use Drupal\Core\Entity\EntityTypeManager;
+use Drupal\events_logging\Plugin\EventsLogging\Storage\DatabaseStorageBackend;
 use Psr\Log\LoggerInterface as DrupalLogger;
 use Symfony\Component\HttpFoundation\RequestStack;
 
@@ -14,11 +15,12 @@ use Symfony\Component\HttpFoundation\RequestStack;
  * Class Logger.
  */
 class Logger implements LoggerInterface {
+  private const EVENTS_LOGGING_CONFIG = 'events_logging.config';
 
   /**
-   * @var \Drupal\events_logging\StorageBackendPluginManagerInterface
+   * @var StorageBackendInterface
    */
-  private $storageBackendPluginManager;
+  private $storageBackend;
 
   /**
    * @var \Psr\Log\LoggerInterface
@@ -26,7 +28,7 @@ class Logger implements LoggerInterface {
   private $drupalLogger;
 
   /**
-   * @var \Drupal\Core\Config\ConfigFactoryInterface
+   * @var \Drupal\Core\Config\ImmutableConfig
    */
   private $config;
 
@@ -58,30 +60,27 @@ class Logger implements LoggerInterface {
     EntityTypeManager $entity_type_manager,
     RequestStack $request
   ) {
-    $this->storageBackendPluginManager = $storage_backend_plugin_manager;
     $this->drupalLogger = $drupal_logger;
-    $this->config = $config;
+    $this->config = $config->get(self::EVENTS_LOGGING_CONFIG);
     $this->entityTypeManager = $entity_type_manager;
     $this->request = $request;
+
+    // Uncomment this once the storage_backend_id is configurable.
+    // $storageBackendId = $this->config->get('events_logging.settings')->get('storage_backend_id');
+    try {
+      $this->storageBackend = $storage_backend_plugin_manager->createInstance('database');
+    } catch (PluginException $e) {
+      $this->drupalLogger->warning($e);
+
+      $this->storageBackend = new DatabaseStorageBackend();
+    }
   }
 
   /**
    * @param array $data
    */
   public function log($data) {
-    // Uncomment this once the storage_backend_id is configurable.
-    // $storageBackendId = $this->config->get('events_logging.settings')->get('storage_backend_id');
-    
-    try {
-      /** @var $storageBackend \Drupal\events_logging\StorageBackendInterface */
-      $storageBackend = $this->storageBackendPluginManager->createInstance('database');
-      $storageBackend->save($data);
-    } catch (PluginException $e) {
-      $this->drupalLogger->error("Errors in logging data %data: %error", [
-        print_r($data, TRUE),
-        $e->getMessage(),
-      ]);
-    }
+      $this->storageBackend->save($data);
   }
 
   /**
@@ -89,18 +88,17 @@ class Logger implements LoggerInterface {
    *
    * @return bool
    */
-  public function checkIfEntityIsEnabled(EntityInterface $entity){
+  public function isLoggingEnabledForEntity(EntityInterface $entity){
     $entity_type_id = $entity->getEntityType()->id();
-    $events_logging_config = $this->config->get('events_logging.config');
-    $events_logging_content_entities = $events_logging_config->get('enabled_content_entities') ? $events_logging_config->get('enabled_content_entities') : [];
-    $events_logging_config_entities = $events_logging_config->get('enabled_config_entities') ? $events_logging_config->get('enabled_config_entities') : [];
-    if($entity_type_id == 'events_logging'){
+
+    if ($entity_type_id === 'events_logging') {
       return FALSE;
     }
-    if(in_array($entity_type_id,$events_logging_content_entities) || in_array($entity_type_id,$events_logging_config_entities)){
-      return TRUE;
-    }
-    return FALSE;
+
+    $events_logging_content_entities = (array) $this->config->get('enabled_content_entities');
+    $events_logging_config_entities = (array) $this->config->get('enabled_config_entities');
+
+    return in_array($entity_type_id,array_merge($events_logging_content_entities,$events_logging_config_entities),TRUE);
   }
 
   /**
@@ -161,7 +159,7 @@ class Logger implements LoggerInterface {
    *
    */
   public function PurgeOldLogs(){
-    $config = $this->config->get('events_logging.config');
+    $config = $this->config->get(self::EVENTS_LOGGING_CONFIG);
     $max_records = $config->get('max_records');
     if ($max_records) {
       $events_logging_storage = $this->entityTypeManager->getStorage('events_logging');

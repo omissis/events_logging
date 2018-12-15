@@ -17,7 +17,7 @@ interface LoggerInterface {
   /**
    * @param \Drupal\Core\Entity\EntityInterface $entity
    */
-  public function checkIfEntityIsEnabled(EntityInterface $entity);
+  public function isLoggingEnabledForEntity(EntityInterface $entity);
 
   /**
    * @param \Drupal\Core\Entity\EntityInterface $entity

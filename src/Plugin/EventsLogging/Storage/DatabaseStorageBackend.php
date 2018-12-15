@@ -1,6 +1,6 @@
 <?php
 
-namespace Drupal\events_logging\Plugin\EventLog\Storage;
+namespace Drupal\events_logging\Plugin\EventsLogging\Storage;
 
 use Drupal\Core\Annotation\Translation;
 use Drupal\events_logging\Annotation\StorageBackend;
